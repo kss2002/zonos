@@ -10,4 +10,11 @@ wheels/
 .venv
 
 # Misc.
-.ipynb_checkpoints/
+.ipynb_checkpoints/venv/
+__pycache__/
+*.DS_Store
+*.safetensors
+*.bin
+*.pt
+models/
+venv/

@@ -2,10 +2,13 @@ import torch
 import torchaudio
 import gradio as gr
 from os import getenv
+import os
 
 from zonos.model import Zonos, DEFAULT_BACKBONE_CLS as ZonosBackbone
 from zonos.conditioning import make_cond_dict, supported_language_codes
-from zonos.utils import DEFAULT_DEVICE as device
+
+# [핵심] M1 맥북 GPU(MPS) 강제 활성화
+device = "mps"
 
 CURRENT_MODEL_TYPE = None
 CURRENT_MODEL = None
@@ -13,26 +16,26 @@ CURRENT_MODEL = None
 SPEAKER_EMBEDDING = None
 SPEAKER_AUDIO_PATH = None
 
-
 def load_model_if_needed(model_choice: str):
     global CURRENT_MODEL_TYPE, CURRENT_MODEL
     if CURRENT_MODEL_TYPE != model_choice:
         if CURRENT_MODEL is not None:
             del CURRENT_MODEL
-            torch.cuda.empty_cache()
-        print(f"Loading {model_choice} model...")
+            torch.cuda.empty_cache() 
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache() 
+                
+        print(f"Loading {model_choice} model to {device}...")
+        # 모델 로드 시 device 지정
         CURRENT_MODEL = Zonos.from_pretrained(model_choice, device=device)
         CURRENT_MODEL.requires_grad_(False).eval()
+        CURRENT_MODEL.to(device) # 모델 전체를 확실하게 GPU로 이동
         CURRENT_MODEL_TYPE = model_choice
         print(f"{model_choice} model loaded successfully!")
     return CURRENT_MODEL
 
 
 def update_ui(model_choice):
-    """
-    Dynamically show/hide UI elements based on the model's conditioners.
-    We do NOT display 'language_id' or 'ctc_loss' even if they exist in the model.
-    """
     model = load_model_if_needed(model_choice)
     cond_names = [c.name for c in model.prefix_conditioner.conditioners]
     print("Conditioners in this model:", cond_names)
@@ -114,11 +117,9 @@ def generate_audio(
     unconditional_keys,
     progress=gr.Progress(),
 ):
-    """
-    Generates audio based on the provided UI parameters.
-    We do NOT use language_id or ctc_loss even if the model has them.
-    """
+    # 함수 시작 시 모델을 확실하게 GPU로 가져옴
     selected_model = load_model_if_needed(model_choice)
+    selected_model.to(device)
 
     speaker_noised_bool = bool(speaker_noised)
     fmax = float(fmax)
@@ -135,17 +136,21 @@ def generate_audio(
     seed = int(seed)
     max_new_tokens = 86 * 30
 
-    # This is a bit ew, but works for now.
     global SPEAKER_AUDIO_PATH, SPEAKER_EMBEDDING
 
     if randomize_seed:
         seed = torch.randint(0, 2**32 - 1, (1,)).item()
     torch.manual_seed(seed)
 
+    # 스피커 오디오 처리
     if speaker_audio is not None and "speaker" not in unconditional_keys:
         if speaker_audio != SPEAKER_AUDIO_PATH:
             print("Recomputed speaker embedding")
             wav, sr = torchaudio.load(speaker_audio)
+            
+            # [수정됨] wav를 mps로 보냅니다. (에러난 줄 삭제함)
+            wav = wav.to(device)
+            
             SPEAKER_EMBEDDING = selected_model.make_speaker_embedding(wav, sr)
             SPEAKER_EMBEDDING = SPEAKER_EMBEDDING.to(device, dtype=torch.bfloat16)
             SPEAKER_AUDIO_PATH = speaker_audio
@@ -153,11 +158,13 @@ def generate_audio(
     audio_prefix_codes = None
     if prefix_audio is not None:
         wav_prefix, sr_prefix = torchaudio.load(prefix_audio)
-        wav_prefix = wav_prefix.mean(0, keepdim=True)
+        # prefix 오디오도 mps로 보냅니다.
+        wav_prefix = wav_prefix.mean(0, keepdim=True).to(device)
         wav_prefix = selected_model.autoencoder.preprocess(wav_prefix, sr_prefix)
         wav_prefix = wav_prefix.to(device, dtype=torch.float32)
         audio_prefix_codes = selected_model.autoencoder.encode(wav_prefix.unsqueeze(0))
 
+    # 모든 텐서 생성 시 device=device 지정
     emotion_tensor = torch.tensor(list(map(float, [e1, e2, e3, e4, e5, e6, e7, e8])), device=device)
 
     vq_val = float(vq_single)
@@ -196,6 +203,7 @@ def generate_audio(
         callback=update_progress,
     )
 
+    # 결과물은 CPU로 가져와서 처리
     wav_out = selected_model.autoencoder.decode(codes).cpu().detach()
     sr_out = selected_model.autoencoder.sampling_rate
     if wav_out.dim() == 2 and wav_out.size(0) > 1:
@@ -205,16 +213,11 @@ def generate_audio(
 
 def build_interface():
     supported_models = []
-    if "transformer" in ZonosBackbone.supported_architectures:
-        supported_models.append("Zyphra/Zonos-v0.1-transformer")
-
+    # 강제로 Transformer 추가
+    supported_models.append("Zyphra/Zonos-v0.1-transformer")
+    
     if "hybrid" in ZonosBackbone.supported_architectures:
         supported_models.append("Zyphra/Zonos-v0.1-hybrid")
-    else:
-        print(
-            "| The current ZonosBackbone does not support the hybrid architecture, meaning only the transformer model will be available in the model selector.\n"
-            "| This probably means the mamba-ssm library has not been installed."
-        )
 
     with gr.Blocks() as demo:
         with gr.Row():
