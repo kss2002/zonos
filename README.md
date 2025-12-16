@@ -14,6 +14,10 @@
   </a>
 </div>
 
+<div align="center">
+<img width="2880" height="2020" alt="zonos" src="https://github.com/user-attachments/assets/9d7faaca-ce2a-470b-830b-b325eef4372a" />
+</div>
+
 ---
 
 Zonos-v0.1 is a leading open-weight text-to-speech model trained on more than 200k hours of varied multilingual speech, delivering expressiveness and quality on par with—or even surpassing—top TTS providers.
