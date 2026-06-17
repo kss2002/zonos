@@ -161,3 +161,10 @@ docker run -it --gpus=all --net=host -v /path/to/Zonos:/Zonos -t zonos
 cd /Zonos
 python sample.py # this will generate a sample.wav in /Zonos
 ```
+
+### venv
+
+<img width="169" height="134" alt="image" src="https://github.com/user-attachments/assets/91b5188a-1798-4504-91ca-063efcbc57c4" />
+
+클론하고 세팅시 venv까지 생겨야 정상 작동함.
+.gitignore에 venv이 세팅되어있음.
