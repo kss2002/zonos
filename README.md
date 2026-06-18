@@ -1,4 +1,4 @@
-# Zonos-v0.1
+# Zonos-v0.1 / [lick](https://github.com/Zyphra/Zonos)
 
 <div align="center">
 <img src="assets/ZonosHeader.png" 
